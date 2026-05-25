@@ -110,6 +110,9 @@ BEGIN
         t.PROCESSLIST_USER AS login_name,
         t.PROCESSLIST_HOST AS host_name,
         t.PROCESSLIST_DB AS database_name,
+
+        b.trx_mysql_thread_id AS blocking_session_id,
+
         t.PROCESSLIST_COMMAND AS command,
         t.PROCESSLIST_STATE AS state,
 
@@ -123,8 +126,6 @@ BEGIN
 
         trx.trx_rows_locked,
         trx.trx_rows_modified,
-
-        b.trx_mysql_thread_id AS blocking_session_id,
 
         es.ROWS_EXAMINED AS rows_examined,
         es.ROWS_SENT AS rows_sent,
