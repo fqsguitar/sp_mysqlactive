@@ -83,27 +83,42 @@ BEGIN
         SET p_min_elapsed_seconds = 0;
     END IF;
 
-    SELECT
-        t.PROCESSLIST_ID AS session_id,
-
-        CASE
-            WHEN b.trx_mysql_thread_id IS NOT NULL THEN 'BLOCKED'
-            WHEN EXISTS (
-                SELECT 1
-                FROM performance_schema.data_lock_waits dlw2
-                INNER JOIN information_schema.innodb_trx trx2
-                        ON trx2.trx_id = dlw2.BLOCKING_ENGINE_TRANSACTION_ID
-                WHERE trx2.trx_mysql_thread_id = t.PROCESSLIST_ID
-            ) THEN 'BLOCKING'
-            WHEN t.PROCESSLIST_COMMAND = 'Sleep' THEN 'SLEEPING'
-            ELSE 'RUNNING'
-        END AS activity_status,
-
+    SELECT 
         CONCAT(
-            LPAD(FLOOR(t.PROCESSLIST_TIME / 86400), 2, '0'),
+            LPAD(
+                FLOOR(
+                    GREATEST(
+                        COALESCE(t.PROCESSLIST_TIME, 0),
+                        COALESCE(
+                            TIMESTAMPDIFF(
+                                SECOND,
+                                trx.trx_started,
+                                NOW()
+                            ),
+                            0
+                        )
+                    ) / 86400
+                ),
+                2,
+                '0'
+            ),
             ' ',
-            SEC_TO_TIME(t.PROCESSLIST_TIME % 86400)
-        ) AS elapsed_time,
+            SEC_TO_TIME(
+                GREATEST(
+                    COALESCE(t.PROCESSLIST_TIME, 0),
+                    COALESCE(
+                        TIMESTAMPDIFF(
+                            SECOND,
+                            trx.trx_started,
+                            NOW()
+                        ),
+                        0
+                    )
+                ) % 86400
+            )
+        ) AS dd_hh_mm_ss,
+
+        t.PROCESSLIST_ID AS session_id,
 
         COALESCE(
             LEFT(es.SQL_TEXT, 1000),
@@ -118,14 +133,33 @@ BEGIN
 
         ew.EVENT_NAME AS wait_event,
 
-        t.PROCESSLIST_HOST AS host_name,
-
-        t.PROCESSLIST_TIME AS elapsed_seconds,
+        CASE
+            WHEN b.trx_mysql_thread_id IS NOT NULL THEN 'BLOCKED'
+            WHEN EXISTS (
+                SELECT 1
+                FROM performance_schema.data_lock_waits dlw2
+                INNER JOIN information_schema.innodb_trx trx2
+                        ON trx2.trx_id = dlw2.BLOCKING_ENGINE_TRANSACTION_ID
+                WHERE trx2.trx_mysql_thread_id = t.PROCESSLIST_ID
+            ) THEN 'BLOCKING'
+            WHEN t.PROCESSLIST_COMMAND = 'Sleep' THEN 'SLEEPING'
+            ELSE 'RUNNING'
+        END AS activity_status,
 
         t.PROCESSLIST_COMMAND AS command,
         t.PROCESSLIST_STATE AS state,
 
-        trx.trx_state,
+        GREATEST(
+            COALESCE(t.PROCESSLIST_TIME, 0),
+            COALESCE(
+                TIMESTAMPDIFF(
+                    SECOND,
+                    trx.trx_started,
+                    NOW()
+                ),
+                0
+            )
+        ) AS effective_elapsed_seconds,
 
         TIMESTAMPDIFF(
             SECOND,
@@ -133,8 +167,7 @@ BEGIN
             NOW()
         ) AS open_tran_seconds,
 
-        trx.trx_rows_locked,
-        trx.trx_rows_modified,
+        trx.trx_state,
 
         es.ROWS_EXAMINED AS rows_examined,
         es.ROWS_SENT AS rows_sent,
@@ -144,12 +177,17 @@ BEGIN
         es.NO_INDEX_USED AS no_index_used,
         es.NO_GOOD_INDEX_USED AS no_good_index_used,
 
+        trx.trx_rows_locked,
+        trx.trx_rows_modified,
+
         ew.OBJECT_SCHEMA AS wait_object_schema,
         ew.OBJECT_NAME AS wait_object_name,
         ew.INDEX_NAME AS wait_index_name,
-        ROUND(ew.TIMER_WAIT / 1000000000000, 6) AS wait_seconds
+        ROUND(ew.TIMER_WAIT / 1000000000000, 6) AS wait_seconds,
 
-    FROM performance_schema.threads t
+        t.PROCESSLIST_HOST AS host_name
+
+FROM performance_schema.threads t
 
     LEFT JOIN performance_schema.processlist pl
            ON pl.ID = t.PROCESSLIST_ID
