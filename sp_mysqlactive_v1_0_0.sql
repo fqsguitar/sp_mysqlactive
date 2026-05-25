@@ -105,13 +105,22 @@ BEGIN
             SEC_TO_TIME(t.PROCESSLIST_TIME % 86400)
         ) AS elapsed_time,
 
-        t.PROCESSLIST_TIME AS elapsed_seconds,
+        COALESCE(
+            LEFT(es.SQL_TEXT, 1000),
+            LEFT(pl.INFO, 1000)
+        ) AS sql_text,
 
-        t.PROCESSLIST_USER AS login_name,
-        t.PROCESSLIST_HOST AS host_name,
         t.PROCESSLIST_DB AS database_name,
 
         b.trx_mysql_thread_id AS blocking_session_id,
+
+        t.PROCESSLIST_USER AS login_name,
+
+        ew.EVENT_NAME AS wait_event,
+
+        t.PROCESSLIST_HOST AS host_name,
+
+        t.PROCESSLIST_TIME AS elapsed_seconds,
 
         t.PROCESSLIST_COMMAND AS command,
         t.PROCESSLIST_STATE AS state,
@@ -135,16 +144,10 @@ BEGIN
         es.NO_INDEX_USED AS no_index_used,
         es.NO_GOOD_INDEX_USED AS no_good_index_used,
 
-        ew.EVENT_NAME AS wait_event,
         ew.OBJECT_SCHEMA AS wait_object_schema,
         ew.OBJECT_NAME AS wait_object_name,
         ew.INDEX_NAME AS wait_index_name,
-        ROUND(ew.TIMER_WAIT / 1000000000000, 6) AS wait_seconds,
-
-        COALESCE(
-            LEFT(es.SQL_TEXT, 1000),
-            LEFT(pl.INFO, 1000)
-        ) AS sql_text
+        ROUND(ew.TIMER_WAIT / 1000000000000, 6) AS wait_seconds
 
     FROM performance_schema.threads t
 
